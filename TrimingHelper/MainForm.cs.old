@@ -1,0 +1,551 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+
+namespace TrimingHelper
+{
+    public partial class frmMain : Form
+    {
+        Bitmap m_bmp = null;
+        Bitmap m_backBuffer = null;
+
+        Rectangle m_trimingRect = new Rectangle();
+
+        public frmMain()
+        {
+            InitializeComponent();
+        }
+
+        private void frmMain_Load( object sender, EventArgs e )
+        {
+            this.DoubleBuffered = true;
+            m_cmbMode.SelectedIndex = 0;
+            updateImgInfo();
+        }
+
+        private void m_btnPaste_Click( object sender, EventArgs e )
+        {
+            IDataObject clip = Clipboard.GetDataObject();
+            if( clip.GetDataPresent( typeof( Bitmap ) ) == false )
+            {
+                return;
+            }
+            m_bmp = clip.GetData( typeof( Bitmap ) ) as Bitmap;
+            if( m_bmp == null )
+            {
+                return;
+            }
+            updateImgInfo();
+        }
+
+        private void m_btnTrim_Click( object sender, EventArgs e )
+        {
+            try
+            {
+                using( Bitmap trimBmp = new Bitmap( m_trimingRect.Width, m_trimingRect.Height ) )
+                using( Graphics graph = Graphics.FromImage( trimBmp ) )
+                {
+                    graph.DrawImage( m_bmp, 0, 0, m_trimingRect, GraphicsUnit.Pixel );
+                    Clipboard.SetDataObject( trimBmp, true );
+                }
+            }
+            catch( Exception ex )
+            {
+                MessageBox.Show( this, ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error );
+            }
+        }
+
+        private void m_pnlTriming_Paint( object sender, PaintEventArgs e )
+        {
+            if( m_backBuffer != null )
+            {
+                e.Graphics.DrawImage( m_backBuffer, 0, 0 );
+            }
+        }
+
+
+        private void frmMain_Resize( object sender, EventArgs e )
+        {
+            updateImgInfo();
+        }
+
+        private void updateImgInfo()
+        {
+            if( m_bmp == null )
+            {
+                m_scBarH.Maximum = 0;
+                m_scBarH.Value = 0;
+                m_scBarH.Enabled = false;
+                m_scBarV.Maximum = 0;
+                m_scBarV.Value = 0;
+                m_scBarV.Enabled = false;
+            }
+            else
+            {
+                int width = m_bmp.Width;
+                int height = m_bmp.Height;
+                if( m_pnlTriming.Width <= width )
+                {
+                    m_scBarH.Maximum = width - m_pnlTriming.Width;
+                    m_scBarH.Enabled = true;
+                }
+                else
+                {
+                    m_scBarH.Maximum = 0;
+                    m_scBarH.Value = 0;
+                    m_scBarH.Enabled = false;
+                }
+                if( m_pnlTriming.Height <= height )
+                {
+                    m_scBarV.Maximum = height - m_pnlTriming.Height;
+                    m_scBarV.Enabled = true;
+                }
+                else
+                {
+                    m_scBarV.Maximum = 0;
+                    m_scBarV.Value = 0;
+                    m_scBarV.Enabled = false;
+                }
+            }
+            if( m_backBuffer != null )
+            {
+                m_backBuffer.Dispose();
+                m_backBuffer = null;
+            }
+            m_backBuffer = new Bitmap( m_pnlTriming.Width, m_pnlTriming.Height );
+            updateBackBuffer();
+        }
+
+        private void updateBackBuffer()
+        {
+            if( m_backBuffer == null )
+            {
+                return;
+            }
+            using( SolidBrush bkBrush = new SolidBrush( Color.Black ))
+            using( SolidBrush filterBrush = new SolidBrush( Color.FromArgb(32, Color.Black) ) )
+            using(Font filterFont = new Font( this.Font.FontFamily, this.Font.Size * 4, FontStyle.Bold, Font.Unit))
+            using( Graphics bkBuff = Graphics.FromImage( m_backBuffer ) )
+            {
+                bkBuff.FillRectangle( bkBrush, 0, 0, m_pnlTriming.Width, m_pnlTriming.Height );
+                if( m_bmp != null )
+                {
+                    int x = m_scBarH.Value;
+                    int y = m_scBarV.Value;
+
+                    bkBuff.DrawImage( m_bmp, 0 - x, 0 - y );
+                }
+                bkBuff.FillRectangle( filterBrush, 0, 0, m_pnlTriming.Width, m_pnlTriming.Height );
+
+                SizeF size = bkBuff.MeasureString( "Triming", filterFont );
+                float strX = ( m_pnlTriming.Width - size.Width ) / 2;
+                float strY = ( m_pnlTriming.Height - size.Height ) / 2;
+                DrawStringWithEdge( bkBuff, "Triming", (int)strX, (int)strY, filterFont, Color.FromArgb( 2, Color.White ), Color.FromArgb( 48, Color.Black ) );
+
+
+                if( m_trimingRect.IsEmpty == false )
+                {
+                    int x = m_scBarH.Value;
+                    int y = m_scBarV.Value;
+                    Rectangle trimRect = m_trimingRect;
+                    trimRect.Y = trimRect.Y - y;
+                    trimRect.X = trimRect.X - x;
+                    using( SolidBrush brush = new SolidBrush( Color.FromArgb( 128, Color.Yellow ) ) )
+                    using( Pen pen = new Pen( brush, 4 ) )
+                    {
+                        pen.DashStyle = DashStyle.Dash;
+                        bkBuff.DrawRectangle( pen, trimRect );
+                    }
+
+                    string textLT = string.Format( "{0},{1}", m_trimingRect.Left, m_trimingRect.Top );
+                    string textRB = string.Format( "{0},{1}", m_trimingRect.Right, m_trimingRect.Bottom );
+
+                    DrawStringWithEdge( bkBuff, textLT, trimRect.Left, trimRect.Top, this.Font, Color.White, Color.Black );
+                    DrawStringWithEdge( bkBuff, textRB, trimRect.Right, trimRect.Bottom, this.Font, Color.White, Color.Black );
+                }
+            }
+            m_pnlTriming.Invalidate();
+            m_pnlTriming.Update();
+        }
+
+        private void DrawStringWithEdge(Graphics graph, string text, int x, int y, Font font, Color edgeColor, Color textColor)
+        {
+            using( SolidBrush txtBkBrush = new SolidBrush( edgeColor ) )
+            using( SolidBrush txtFrBrush = new SolidBrush( textColor ) )
+            {
+                graph.DrawString( text, font, txtBkBrush, new Point( x - 1, y - 1 ) );
+                graph.DrawString( text, font, txtBkBrush, new Point( x - 1, y ) );
+                graph.DrawString( text, font, txtBkBrush, new Point( x - 1, y + 1 ) );
+
+                graph.DrawString( text, font, txtBkBrush, new Point( x, y - 1 ) );
+                graph.DrawString( text, font, txtBkBrush, new Point( x, y - 0 ) );
+                graph.DrawString( text, font, txtBkBrush, new Point( x, y + 1 ) );
+
+                graph.DrawString( text, font, txtBkBrush, new Point( x + 1, y - 1 ) );
+                graph.DrawString( text, font, txtBkBrush, new Point( x + 1, y ) );
+                graph.DrawString( text, font, txtBkBrush, new Point( x + 1, y + 1 ) );
+
+                graph.DrawString( text, font, txtFrBrush, new Point( x, y ) );
+            }
+        }
+
+        private void m_scBarV_Scroll( object sender, ScrollEventArgs e )
+        {
+            updateBackBuffer();
+        }
+
+        private void m_scBarH_Scroll( object sender, ScrollEventArgs e )
+        {
+            updateBackBuffer();
+        }
+
+        private void m_pnlTriming_Click( object sender, EventArgs e )
+        {
+
+        }
+
+        private void m_pnlTriming_MouseDown( object sender, MouseEventArgs e )
+        {
+            int x = m_scBarH.Value;
+            int y = m_scBarV.Value;
+            m_trimingRect = new Rectangle( e.X + x, e.Y + y, 1, 1 );
+            updateBackBuffer();
+        }
+
+        private void m_pnlTriming_MouseMove( object sender, MouseEventArgs e )
+        {
+            if( (e.Button & MouseButtons.Left) != MouseButtons.Left )
+            {
+                return;
+            }
+
+            int x = m_scBarH.Value;
+            int y = m_scBarV.Value;
+            m_trimingRect.Width = e.X - m_trimingRect.Left + x;
+            m_trimingRect.Height = e.Y - m_trimingRect.Top + y;
+            updateBackBuffer();
+        }
+
+        private void m_pnlTriming_MouseUp( object sender, MouseEventArgs e )
+        {
+            int x = m_scBarH.Value;
+            int y = m_scBarV.Value;
+            m_trimingRect.Width = e.X - m_trimingRect.Left + x;
+            m_trimingRect.Height = e.Y - m_trimingRect.Top + y;
+            trimImg();
+        }
+
+        private void button1_Click( object sender, EventArgs e )
+        {
+            trimImg();
+
+        }
+
+        private void trimImg()
+        {
+            if( m_bmp == null )
+            {
+                return;
+            }
+
+            if( m_trimingRect.Left < 0 )
+            {
+                m_trimingRect.X = 0;
+            }
+            if( m_trimingRect.Top < 0 )
+            {
+                m_trimingRect.Y = 0;
+            }
+            if( m_trimingRect.Right >= m_bmp.Width )
+            {
+                m_trimingRect.Width = m_trimingRect.Width - ( m_trimingRect.Right - m_bmp.Width ) - 1;
+            }
+            if( m_trimingRect.Bottom >= m_bmp.Height )
+            {
+                m_trimingRect.Height = m_trimingRect.Height - ( m_trimingRect.Bottom - m_bmp.Height ) - 1;
+            }
+
+            switch( m_cmbMode.SelectedIndex )
+            {
+                case 0:
+                    // トリミングの自動計算
+
+                    // +---A---+ 
+                    // |       |
+                    // B       D
+                    // |       |
+                    // +---C---+
+
+                    Rectangle trimRect = new Rectangle();
+                    int threshold = 0;
+                    if( int.TryParse( m_txtOffset.Text, out threshold ) == true )
+                    {
+                        try
+                        {
+                            // Aのチェック
+                            trimRect.Y = getY( true );
+                            // Bのチェック
+                            trimRect.X = getX( true );
+                            // Cのチェック
+                            trimRect.Height = getY( false ) - trimRect.Y;
+                            // Dのチェック
+                            trimRect.Width = getX( false ) - trimRect.X;
+
+                            m_trimingRect = trimRect;
+                        }
+                        catch( Exception ex )
+                        {
+                            m_trimingRect = new Rectangle();
+                        }
+                    }
+                    else
+                    {
+                        m_trimingRect = new Rectangle();
+                    }
+                    break;
+
+                case 1:
+                    // 範囲をそのまま利用する
+                    break;
+            }
+
+            updateBackBuffer();
+        }
+
+
+        private int getY(bool isTop)
+        {
+            int sy = m_trimingRect.Top;
+            int sx = m_trimingRect.Left;
+            int ex = m_trimingRect.Right;
+            int ey = m_trimingRect.Bottom;
+
+            if( sy < 0 )
+            {
+                sy = 0;
+            }
+            if( sx < 0 )
+            {
+                sx = 0;
+            }
+            if( ex >= m_bmp.Width )
+            {
+                ex = m_bmp.Width - 1;
+            }
+            if( ey >= m_bmp.Height )
+            {
+                ey = m_bmp.Height - 1;
+            }
+
+
+            int offset = m_trimingRect.Height / 2;
+            int loopOffset = 0;
+            int threshold;
+            if( int.TryParse( m_txtOffset.Text, out threshold ) == false )
+            {
+                return 0;
+            }
+            if( isTop == true )
+            {
+                sy = m_trimingRect.Top;
+                ey = m_trimingRect.Top + offset;
+                loopOffset = 1;
+            }
+            else
+            {
+                sy = m_trimingRect.Bottom;
+                ey = m_trimingRect.Bottom - offset;
+                loopOffset = -1;
+            }
+
+            int[] chkCnt = new int[Math.Abs(ey - sy)];
+            for( int idx = 0; idx < offset; idx++ )
+            {
+                chkCnt[idx] = 0;
+            }
+
+            // AのY座標を決定する
+            for( int x = sx; x < ex; x++ )
+            {
+                int preGs = -1;
+                for( int y = sy; y != ey; y += loopOffset )
+                {
+                    Color color = m_bmp.GetPixel( x, y );
+
+                    int r = color.R;
+                    int g = color.G;
+                    int b = color.B;
+                    int max = Max( new int[] { r, g, b } );
+                    int min = Min( new int[] { r, g, b } );
+                    int gs = ( max + min ) / 2;
+                    if( preGs == -1 )
+                    {
+                    }
+                    else
+                    {
+                        if( Math.Abs( preGs - gs ) > threshold )
+                        {
+                            chkCnt[Math.Abs(y - sy)] += 1;
+                        }
+                    }
+                    preGs = gs;
+                }
+            }
+            int maxIdx = -1;
+            int si = 0;
+            int ei = 0;
+            if( isTop )
+            {
+                si = 0;
+                ei = offset;
+            }
+            else
+            {
+                si = offset - 1;
+                ei = 0;
+            }
+            for( int i = si; i != ei; i += loopOffset )
+            {
+                if( maxIdx == -1 )
+                {
+                    maxIdx = i;
+                }
+                else
+                {
+                    if( chkCnt[i] > chkCnt[maxIdx] )
+                    {
+                        maxIdx = i;
+                    }
+                }
+            }
+            if( isTop == true )
+            {
+                return maxIdx + sy;
+            }
+            else
+            {
+                return sy - maxIdx;
+            }
+        }
+
+        private int getX(bool isLeft)
+        {
+            int sy = m_trimingRect.Top;
+            int sx = m_trimingRect.Left;
+            int ex = m_trimingRect.Right;
+            int ey = m_trimingRect.Bottom;
+            int offset = m_trimingRect.Width / 2;
+
+            int threshold;
+            if( int.TryParse( m_txtOffset.Text, out threshold ) == false )
+            {
+                return 0;
+            }
+            int loopOffset = 0;
+            if( isLeft == true )
+            {
+                sx = m_trimingRect.Left;
+                ex = m_trimingRect.Left + offset;
+                loopOffset = 1;
+            }
+            else
+            {
+                sx = m_trimingRect.Right;
+                ex = m_trimingRect.Right - offset;
+                loopOffset = -1;
+            }
+
+            int[] chkCnt = new int[offset];
+            for( int idx = 0; idx < offset; idx++ )
+            {
+                chkCnt[idx] = 0;
+            }
+
+            for( int y = sy; y < ey; y++ )
+            {
+                int preGs = -1;
+                for( int x = sx; x != ex; x += loopOffset )
+                {
+                    //System.Console.WriteLine( string.Format( "{0} / {1}", x, Math.Abs( x - sx ) ) );
+                    Color color = m_bmp.GetPixel( x, y );
+
+                    int r = color.R;
+                    int g = color.G;
+                    int b = color.B;
+                    int max = Max( new int[] { r, g, b } );
+                    int min = Min( new int[] { r, g, b } );
+                    int gs = ( max + min ) / 2;
+                    if( preGs == -1 )
+                    {
+                    }
+                    else
+                    {
+                        if( Math.Abs( preGs - gs ) > threshold )
+                        {
+                            chkCnt[Math.Abs(x - sx)] += 1;
+                        }
+                    }
+                    preGs = gs;
+                }
+            }
+            int maxIdx = -1;
+            int si = 0;
+            int ei = 0;
+            if( isLeft )
+            {
+                si = 0;
+                ei = offset;
+            }
+            else
+            {
+                si = offset - 1;
+                ei = 0;
+//                si = 0;
+//                ei = offset;
+            }
+            for( int i = si; i != ei; i += loopOffset )
+            {
+                if( maxIdx == -1 )
+                {
+                    maxIdx = i;
+                }
+                else
+                {
+                    if( chkCnt[i] > chkCnt[maxIdx] )
+                    {
+                        maxIdx = i;
+                    }
+                }
+            }
+            if( isLeft == true )
+            {
+                return maxIdx + sx;
+            }
+            else
+            {
+                return sx - maxIdx;
+            }
+        }
+
+        private static int Max( int[] val )
+        {
+            Array.Sort<int>( val );
+            return val[val.Length - 1];
+        }
+        private static int Min( int[] val )
+        {
+            Array.Sort<int>( val );
+            return val[0];
+        }
+
+
+
+    }
+}
+
